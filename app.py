@@ -14,8 +14,8 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 # グローバル変数
 current_model = None
 current_model_name = ""
-current_engine = ""  # "whisper", "nemo", "transformers", "phi4"
-processor = None     # Transformers / Phi4 用
+current_engine = ""  # "whisper", "nemo", "transformers", "phi4", "seamless"
+processor = None     # Transformers / Phi4 / Seamless 用
 
 def release_memory():
     """現在のモデルをメモリから解放する"""
@@ -126,15 +126,13 @@ def load_phi4(model_name):
     global processor
     
     try:
-        # device_map="auto" には accelerate が必要
-        # fp16 でロードしてメモリ節約
         processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
         model = AutoModelForCausalLM.from_pretrained(
             model_name, 
             trust_remote_code=True, 
             torch_dtype=torch.float16, 
             device_map="auto",
-            _attn_implementation='eager' # 環境によっては flash_attn がないので eager 指定
+            _attn_implementation='eager'
         )
         return model, "phi4"
     except Exception as e:
@@ -145,27 +143,58 @@ def transcribe_phi4(model, audio_path):
     print(f"Transcribing with Phi-4: {audio_path}")
     global processor
     
-    # 音声の読み込みとリサンプリング (16kHz)
     audio, sr = librosa.load(audio_path, sr=16000)
-    
-    # プロンプト作成 (一行で記述)
-    prompt = "<|user|>\n<|audio_1|>Transcribe this audio to text.<|end|>\n<|assistant|>"
-    
+    prompt = "<|user|>
+<|audio_1|>Transcribe this audio to text.<|end|>
+<|assistant|>
+"
     inputs = processor(text=prompt, audios=audio, return_tensors="pt").to(model.device)
     
-    # 生成
-    generate_ids = model.generate(
-        **inputs, 
-        max_new_tokens=500, 
-        do_sample=False  # 決定論的にする
-    )
-    
-    # デコード (入力プロンプト部分は除外)
-    # Phi-4 の出力フォーマットに合わせて調整が必要な場合があるが、まずは標準的にデコード
+    generate_ids = model.generate(**inputs, max_new_tokens=500, do_sample=False)
     generate_ids = generate_ids[:, inputs.input_ids.shape[1]:] 
     response = processor.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
     
     return response
+
+# --- Meta Seamless M4T ---
+def load_seamless(model_name):
+    from transformers import AutoProcessor, SeamlessM4TModel, SeamlessM4Tv2Model
+    
+    release_memory()
+    print(f"Loading Seamless M4T model '{model_name}'...")
+    global processor
+    
+    try:
+        processor = AutoProcessor.from_pretrained(model_name)
+        
+        if "v2" in model_name:
+            model = SeamlessM4Tv2Model.from_pretrained(model_name)
+        else:
+            model = SeamlessM4TModel.from_pretrained(model_name)
+            
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = model.to(device)
+        return model, "seamless"
+    except Exception as e:
+        print(f"Failed to load Seamless M4T: {e}")
+        raise e
+
+def transcribe_seamless(model, audio_path):
+    print(f"Transcribing with Seamless M4T: {audio_path}")
+    global processor
+    
+    # 16kHz リサンプリング
+    audio, sr = librosa.load(audio_path, sr=16000)
+    
+    inputs = processor(audios=audio, return_tensors="pt", sampling_rate=16000).to(model.device)
+    
+    # tgt_lang="jpn" で日本語として出力させる (ASR)
+    # 英語にしたい場合は "eng"
+    output_tokens = model.generate(**inputs, tgt_lang="jpn", generate_speech=False)
+    transcription = processor.decode(output_tokens[0].tolist(), skip_special_tokens=True)
+    
+    return transcription
+
 
 # --- Main Logic ---
 
@@ -194,6 +223,9 @@ def process_audio(audio, model_selection):
                 
             elif "Phi-4" in model_selection:
                 current_model, current_engine = load_phi4(model_selection)
+            
+            elif "seamless-m4t" in model_selection:
+                current_model, current_engine = load_seamless(model_selection)
                 
             current_model_name = model_selection
 
@@ -206,6 +238,8 @@ def process_audio(audio, model_selection):
             return transcribe_transformers(current_model, audio)
         elif current_engine == "phi4":
             return transcribe_phi4(current_model, audio)
+        elif current_engine == "seamless":
+            return transcribe_seamless(current_model, audio)
         else:
             return "Unknown engine error."
             
@@ -224,8 +258,11 @@ model_choices = [
     "nvidia/parakeet-ctc-1.1b",
     "nvidia/parakeet-tdt_ctc-0.6b-ja",
     "nvidia/canary-1b",
-    # Microsoft Phi-4 (Multimodal)
+    # Microsoft Phi-4
     "microsoft/Phi-4-multimodal-instruct",
+    # Meta Seamless M4T
+    "facebook/seamless-m4t-v2-large",
+    "facebook/seamless-m4t-medium",
     # Transformers
     "facebook/wav2vec2-large-960h",
     "jonatasgrosman/wav2vec2-large-xlsr-53-japanese",
@@ -240,12 +277,13 @@ demo = gr.Interface(
     outputs=gr.Textbox(lines=15, label="Transcription Result"),
     title="Universal Speech Recognition Web UI",
     description="""
-    OpenAI Whisper, NVIDIA NeMo, Microsoft Phi-4, Meta Wav2Vec2 を切り替えて試せます。
+    OpenAI Whisper, NVIDIA NeMo, Microsoft Phi-4, Meta Seamless M4T, Wav2Vec2 を切り替えて試せます。
     
-    - **Whisper**: 多言語対応、高精度。
-    - **NVIDIA Parakeet/Canary**: 高速・高精度。
-    - **Microsoft Phi-4**: マルチモーダル指示モデル。"Transcribe..."と指示して動作させています。
-    - **Wav2Vec2**: 従来型モデル。
+    - **Whisper**: 定番。多言語・高精度。
+    - **NVIDIA Parakeet/Canary**: 高速ASRモデル。
+    - **Microsoft Phi-4**: マルチモーダルLLM。
+    - **Seamless M4T**: Metaの翻訳・認識統合モデル (今回は日本語ASRとして動作)。
+    - **Wav2Vec2**: 従来型ASR。
     """
 )
 
