@@ -212,6 +212,7 @@ model_choices = [
     # NVIDIA NeMo (Parakeet / Canary)
     "nvidia/parakeet-rnnt-1.1b",   # 高精度, 英語メイン
     "nvidia/parakeet-ctc-1.1b",    # 高速, 英語メイン
+    "nvidia/parakeet-tdt_ctc-0.6b-ja", # 日本語対応
     "nvidia/canary-1b",            # 多言語対応 (日本語含む)
     # Transformers (Wav2Vec2)
     "facebook/wav2vec2-large-960h",             # 英語 (Standard)
