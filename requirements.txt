@@ -1,0 +1,14 @@
+openai-whisper
+torch
+numpy
+gradio
+transformers
+torchaudio
+librosa
+soundfile
+protobuf
+sentencepiece
+packaging
+hydra-core
+# NVIDIA NeMo (ASR)
+nemo_toolkit[asr]
