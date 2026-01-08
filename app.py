@@ -224,7 +224,7 @@ demo = gr.Interface(
         gr.Audio(sources=["microphone", "upload"], type="filepath", label="Audio Input"),
         gr.Dropdown(choices=model_choices, value="whisper-base", label="Select Model")
     ],
-    outputs=gr.Textbox(lines=15, label="Transcription Result", show_copy_button=True),
+    outputs=gr.Textbox(lines=15, label="Transcription Result"),
     title="Universal Speech Recognition Web UI",
     description="""
     OpenAI Whisper, NVIDIA Parakeet/Canary, Meta Wav2Vec2 を切り替えて試せます。
