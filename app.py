@@ -148,10 +148,8 @@ def transcribe_phi4(model, audio_path):
     # 音声の読み込みとリサンプリング (16kHz)
     audio, sr = librosa.load(audio_path, sr=16000)
     
-    # プロンプト作成
-    prompt = "<|user|>
-<|audio_1|>Transcribe this audio to text.<|end|>
-<|assistant|>>"
+    # プロンプト作成 (一行で記述)
+    prompt = "<|user|>\n<|audio_1|>Transcribe this audio to text.<|end|>\n<|assistant|>"
     
     inputs = processor(text=prompt, audios=audio, return_tensors="pt").to(model.device)
     
