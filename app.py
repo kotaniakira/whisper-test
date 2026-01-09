@@ -108,39 +108,6 @@ def transcribe_transformers(pipe, audio_path):
     result = pipe(audio_path)
     return result["text"]
 
-# --- Microsoft Phi-4 ---
-def load_phi4(model_name):
-    from transformers import AutoProcessor, AutoModelForCausalLM
-    release_memory()
-    print(f"Loading Phi-4 model '{model_name}'...")
-    global processor
-    try:
-        processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name, 
-            trust_remote_code=True, 
-            torch_dtype=torch.float16, 
-            device_map="auto",
-            _attn_implementation='eager'
-        )
-        return model, "phi4"
-    except Exception as e:
-        print(f"Failed to load Phi-4: {e}")
-        raise e
-
-def transcribe_phi4(model, audio_path):
-    print(f"Transcribing with Phi-4: {audio_path}")
-    global processor
-    audio, sr = librosa.load(audio_path, sr=16000)
-    prompt = "<|user|>
-<|audio_1|>Transcribe this audio to text.<|end|>
-<|assistant|>".replace("\n", "\n")
-    inputs = processor(text=prompt, audios=audio, return_tensors="pt").to(model.device)
-    generate_ids = model.generate(**inputs, max_new_tokens=500, do_sample=False)
-    generate_ids = generate_ids[:, inputs.input_ids.shape[1]:] 
-    response = processor.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
-    return response
-
 # --- Meta Seamless M4T ---
 def load_seamless(model_name):
     from transformers import AutoProcessor, SeamlessM4TModel, SeamlessM4Tv2Model
@@ -192,8 +159,6 @@ def process_audio(audio, model_selection):
                     current_model, current_engine = load_nemo(model_selection)
                 elif "wav2vec2" in model_selection:
                     current_model, current_engine = load_transformers(model_selection)
-                elif "Phi-4" in model_selection:
-                    current_model, current_engine = load_phi4(model_selection)
                 elif "seamless-m4t" in model_selection:
                     current_model, current_engine = load_seamless(model_selection)
                 current_model_name = model_selection
@@ -205,8 +170,6 @@ def process_audio(audio, model_selection):
                 result_text = transcribe_nemo(current_model, audio)
             elif current_engine == "transformers":
                 result_text = transcribe_transformers(current_model, audio)
-            elif current_engine == "phi4":
-                result_text = transcribe_phi4(current_model, audio)
             elif current_engine == "seamless":
                 result_text = transcribe_seamless(current_model, audio)
             else:
@@ -226,7 +189,6 @@ def process_audio(audio, model_selection):
 model_choices = [
     "whisper-tiny", "whisper-base", "whisper-small", "whisper-medium", "whisper-large-v3",
     "nvidia/parakeet-rnnt-1.1b", "nvidia/parakeet-ctc-1.1b", "nvidia/parakeet-tdt_ctc-0.6b-ja", "nvidia/canary-1b",
-    "microsoft/Phi-4-multimodal-instruct",
     "facebook/seamless-m4t-v2-large", "facebook/seamless-m4t-medium",
     "facebook/wav2vec2-large-960h", "jonatasgrosman/wav2vec2-large-xlsr-53-japanese",
 ]
