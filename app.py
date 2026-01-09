@@ -6,6 +6,7 @@ import whisper
 import librosa
 import soundfile as sf
 import numpy as np
+import time
 
 # キャッシュディレクトリ
 CACHE_DIR = "./models"
@@ -202,7 +203,9 @@ def process_audio(audio, model_selection):
     global current_model, current_model_name, current_engine, processor
     
     if audio is None:
-        return "No audio provided."
+        return "No audio provided.", ""
+    
+    start_time = time.time()
     
     if not model_selection:
         model_selection = "whisper-base"
@@ -230,23 +233,30 @@ def process_audio(audio, model_selection):
             current_model_name = model_selection
 
         # 推論実行
+        result_text = ""
         if current_engine == "whisper":
-            return transcribe_whisper(current_model, audio)
+            result_text = transcribe_whisper(current_model, audio)
         elif current_engine == "nemo":
-            return transcribe_nemo(current_model, audio)
+            result_text = transcribe_nemo(current_model, audio)
         elif current_engine == "transformers":
-            return transcribe_transformers(current_model, audio)
+            result_text = transcribe_transformers(current_model, audio)
         elif current_engine == "phi4":
-            return transcribe_phi4(current_model, audio)
+            result_text = transcribe_phi4(current_model, audio)
         elif current_engine == "seamless":
-            return transcribe_seamless(current_model, audio)
+            result_text = transcribe_seamless(current_model, audio)
         else:
-            return "Unknown engine error."
+            result_text = "Unknown engine error."
+            
+        elapsed_time = time.time() - start_time
+        time_info = f"⏱️ Time: {elapsed_time:.2f} sec"
+        
+        return result_text, time_info
             
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return f"Error: {str(e)}"
+        elapsed_time = time.time() - start_time
+        return f"Error: {str(e)}", f"⏱️ Time: {elapsed_time:.2f} sec (Failed)"
 
 # --- UI Definition ---
 
@@ -268,24 +278,26 @@ model_choices = [
     "jonatasgrosman/wav2vec2-large-xlsr-53-japanese",
 ]
 
-demo = gr.Interface(
-    fn=process_audio,
-    inputs=[
-        gr.Audio(sources=["microphone", "upload"], type="filepath", label="Audio Input"),
-        gr.Dropdown(choices=model_choices, value="whisper-base", label="Select Model")
-    ],
-    outputs=gr.Textbox(lines=15, label="Transcription Result"),
-    title="Universal Speech Recognition Web UI",
-    description="""
-    OpenAI Whisper, NVIDIA NeMo, Microsoft Phi-4, Meta Seamless M4T, Wav2Vec2 を切り替えて試せます。
+with gr.Blocks(title="Universal Speech Recognition Web UI") as demo:
+    gr.Markdown("# Universal Speech Recognition Web UI")
+    gr.Markdown("OpenAI Whisper, NVIDIA NeMo, Microsoft Phi-4, Meta Seamless M4T, Wav2Vec2 を切り替えて試せます。")
     
-    - **Whisper**: 定番。多言語・高精度。
-    - **NVIDIA Parakeet/Canary**: 高速ASRモデル。
-    - **Microsoft Phi-4**: マルチモーダルLLM。
-    - **Seamless M4T**: Metaの翻訳・認識統合モデル (今回は日本語ASRとして動作)。
-    - **Wav2Vec2**: 従来型ASR。
-    """
-)
+    with gr.Row():
+        with gr.Column(scale=1):
+            audio_input = gr.Audio(sources=["microphone", "upload"], type="filepath", label="Audio Input")
+            model_dropdown = gr.Dropdown(choices=model_choices, value="whisper-base", label="Select Model")
+            submit_btn = gr.Button("Transcribe", variant="primary")
+        
+        with gr.Column(scale=1):
+            output_text = gr.Textbox(lines=15, label="Transcription Result")
+            time_output = gr.Label(label="Processing Time")
+            
+    submit_btn.click(
+        fn=process_audio,
+        inputs=[audio_input, model_dropdown],
+        outputs=[output_text, time_output]
+    )
 
 if __name__ == "__main__":
-    demo.launch(share=True)
+    # concurrency_count=1 に設定することで、同時に1つの処理しか走らないようにする（他はキュー待ち）
+    demo.queue(default_concurrency_limit=1).launch(share=True)
