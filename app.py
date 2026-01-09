@@ -145,10 +145,7 @@ def transcribe_phi4(model, audio_path):
     global processor
     
     audio, sr = librosa.load(audio_path, sr=16000)
-    prompt = "<|user|>
-<|audio_1|>Transcribe this audio to text.<|end|>
-<|assistant|>
-"
+    prompt = "<|user|>\n<|audio_1|>Transcribe this audio to text.<|end|>\n<|assistant|>"
     inputs = processor(text=prompt, audios=audio, return_tensors="pt").to(model.device)
     
     generate_ids = model.generate(**inputs, max_new_tokens=500, do_sample=False)
