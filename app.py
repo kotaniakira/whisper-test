@@ -7,10 +7,14 @@ import librosa
 import soundfile as sf
 import numpy as np
 import time
+import threading
 
 # キャッシュディレクトリ
 CACHE_DIR = "./models"
 os.makedirs(CACHE_DIR, exist_ok=True)
+
+# 排他制御用のロック（これが「鍵」になります）
+processing_lock = threading.Lock()
 
 # グローバル変数
 current_model = None
@@ -145,7 +149,9 @@ def transcribe_phi4(model, audio_path):
     global processor
     
     audio, sr = librosa.load(audio_path, sr=16000)
-    prompt = "<|user|>\n<|audio_1|>Transcribe this audio to text.<|end|>\n<|assistant|>"
+    prompt = "<|user|>
+<|audio_1|>Transcribe this audio to text.<|end|>
+<|assistant|>".replace("\n", "\n")
     inputs = processor(text=prompt, audios=audio, return_tensors="pt").to(model.device)
     
     generate_ids = model.generate(**inputs, max_new_tokens=500, do_sample=False)
@@ -202,58 +208,69 @@ def process_audio(audio, model_selection):
     if audio is None:
         return "No audio provided.", ""
     
-    start_time = time.time()
-    
-    if not model_selection:
-        model_selection = "whisper-base"
-
-    try:
-        # モデルロード判定
-        if current_model_name != model_selection:
-            
-            if model_selection.startswith("whisper-"):
-                w_name = model_selection.replace("whisper-", "")
-                current_model, current_engine = load_whisper(w_name)
-                
-            elif model_selection.startswith("nvidia/"):
-                current_model, current_engine = load_nemo(model_selection)
-                
-            elif "wav2vec2" in model_selection:
-                current_model, current_engine = load_transformers(model_selection)
-                
-            elif "Phi-4" in model_selection:
-                current_model, current_engine = load_phi4(model_selection)
-            
-            elif "seamless-m4t" in model_selection:
-                current_model, current_engine = load_seamless(model_selection)
-                
-            current_model_name = model_selection
-
-        # 推論実行
-        result_text = ""
-        if current_engine == "whisper":
-            result_text = transcribe_whisper(current_model, audio)
-        elif current_engine == "nemo":
-            result_text = transcribe_nemo(current_model, audio)
-        elif current_engine == "transformers":
-            result_text = transcribe_transformers(current_model, audio)
-        elif current_engine == "phi4":
-            result_text = transcribe_phi4(current_model, audio)
-        elif current_engine == "seamless":
-            result_text = transcribe_seamless(current_model, audio)
-        else:
-            result_text = "Unknown engine error."
-            
-        elapsed_time = time.time() - start_time
-        time_info = f"⏱️ Time: {elapsed_time:.2f} sec"
+    # ロックがかかっているかチェック（ログ用）
+    if processing_lock.locked():
+        print("!!! Another user is currently processing. Waiting for lock... !!!")
         
-        return result_text, time_info
+    # --- ここから「排他制御」開始 ---
+    # この with ブロックの中には、世界中で同時に1人しか入れません。
+    # 2人目は、1人目がこのブロックを抜けるまでここで完全に停止（待機）します。
+    with processing_lock:
+        print(f"Start processing for: {model_selection}")
+        start_time = time.time()
+        
+        if not model_selection:
+            model_selection = "whisper-base"
+
+        try:
+            # モデルロード判定
+            if current_model_name != model_selection:
+                
+                if model_selection.startswith("whisper-"):
+                    w_name = model_selection.replace("whisper-", "")
+                    current_model, current_engine = load_whisper(w_name)
+                    
+                elif model_selection.startswith("nvidia/"):
+                    current_model, current_engine = load_nemo(model_selection)
+                    
+                elif "wav2vec2" in model_selection:
+                    current_model, current_engine = load_transformers(model_selection)
+                    
+                elif "Phi-4" in model_selection:
+                    current_model, current_engine = load_phi4(model_selection)
+                
+                elif "seamless-m4t" in model_selection:
+                    current_model, current_engine = load_seamless(model_selection)
+                    
+                current_model_name = model_selection
+
+            # 推論実行
+            result_text = ""
+            if current_engine == "whisper":
+                result_text = transcribe_whisper(current_model, audio)
+            elif current_engine == "nemo":
+                result_text = transcribe_nemo(current_model, audio)
+            elif current_engine == "transformers":
+                result_text = transcribe_transformers(current_model, audio)
+            elif current_engine == "phi4":
+                result_text = transcribe_phi4(current_model, audio)
+            elif current_engine == "seamless":
+                result_text = transcribe_seamless(current_model, audio)
+            else:
+                result_text = "Unknown engine error."
+                
+            elapsed_time = time.time() - start_time
+            time_info = f"⏱️ Time: {elapsed_time:.2f} sec"
+            print(f"Processing finished. Time: {elapsed_time:.2f} sec")
             
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        elapsed_time = time.time() - start_time
-        return f"Error: {str(e)}", f"⏱️ Time: {elapsed_time:.2f} sec (Failed)"
+            return result_text, time_info
+                
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            elapsed_time = time.time() - start_time
+            return f"Error: {str(e)}", f"⏱️ Time: {elapsed_time:.2f} sec (Failed)"
+    # --- 排他制御終了 ---
 
 # --- UI Definition ---
 
@@ -296,5 +313,5 @@ with gr.Blocks(title="Universal Speech Recognition Web UI") as demo:
     )
 
 if __name__ == "__main__":
-    # concurrency_count=1 に設定することで、同時に1つの処理しか走らないようにする（他はキュー待ち）
+    # concurrency_count=1 (旧仕様) も念のため指定し、queue() も有効化
     demo.queue(default_concurrency_limit=1).launch(share=True)
