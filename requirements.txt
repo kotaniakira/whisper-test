@@ -13,5 +13,7 @@ hydra-core
 accelerate
 # NVIDIA NeMo (ASR)
 nemo_toolkit[asr]
+
+# Japanese Text Processing (for Reading/Katakana generation)
 sudachipy
 sudachidict_core
