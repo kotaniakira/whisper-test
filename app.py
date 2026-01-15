@@ -9,10 +9,16 @@ import numpy as np
 import time
 import threading
 import datetime
+from sudachipy import dictionary
+from sudachipy import tokenizer
 
 # キャッシュディレクトリ
 CACHE_DIR = "./models"
 os.makedirs(CACHE_DIR, exist_ok=True)
+
+# Sudachiの初期化
+tokenizer_obj = dictionary.Dictionary().create()
+mode = tokenizer.Tokenizer.SplitMode.C
 
 # 排他制御用のロック
 processing_lock = threading.Lock()
@@ -50,6 +56,32 @@ def save_transcription(text):
     
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(text)
+    
+    return filepath
+
+def get_reading(text):
+    """Sudachiを使ってテキストをカタカナ読みに変換する"""
+    if not text:
+        return ""
+    
+    # Sudachiで形態素解析して読みを取得
+    tokens = tokenizer_obj.tokenize(text, mode)
+    reading = "".join([m.reading_form() for m in tokens])
+    return reading
+
+def save_reading(text):
+    """読み（カタカナ）をテキストファイルに保存する"""
+    if not text:
+        return None
+    
+    reading_text = get_reading(text)
+    
+    os.makedirs("outputs", exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filepath = os.path.join("outputs", f"reading_{timestamp}.txt")
+    
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(reading_text)
     
     return filepath
 
@@ -218,9 +250,12 @@ with gr.Blocks(title="Universal Speech Recognition Web UI") as demo:
         with gr.Column(scale=1):
             output_text = gr.Textbox(lines=15, label="Transcription Result")
             time_output = gr.Label(label="Processing Time")
-            download_btn = gr.Button("Download Text Result")
+            with gr.Row():
+                download_btn = gr.Button("Download Text")
+                reading_btn = gr.Button("Download Reading (Katakana)")
             download_file = gr.File(label="Download File")
             download_btn.click(save_transcription, inputs=output_text, outputs=download_file)
+            reading_btn.click(save_reading, inputs=output_text, outputs=download_file)
     submit_btn.click(fn=process_audio, inputs=[audio_input, model_dropdown], outputs=[output_text, time_output])
 
 if __name__ == "__main__":

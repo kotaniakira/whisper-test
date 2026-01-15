@@ -13,3 +13,5 @@ hydra-core
 accelerate
 # NVIDIA NeMo (ASR)
 nemo_toolkit[asr]
+sudachipy
+sudachidict_core
