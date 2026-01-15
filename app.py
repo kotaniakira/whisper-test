@@ -8,6 +8,7 @@ import soundfile as sf
 import numpy as np
 import time
 import threading
+import datetime
 
 # キャッシュディレクトリ
 CACHE_DIR = "./models"
@@ -37,6 +38,20 @@ def release_memory():
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     print("Memory released.")
+
+def save_transcription(text):
+    """文字起こし結果をテキストファイルに保存する"""
+    if not text:
+        return None
+    
+    os.makedirs("outputs", exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filepath = os.path.join("outputs", f"transcription_{timestamp}.txt")
+    
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(text)
+    
+    return filepath
 
 # --- Whisper Engine ---
 def load_whisper(model_name):
@@ -203,6 +218,9 @@ with gr.Blocks(title="Universal Speech Recognition Web UI") as demo:
         with gr.Column(scale=1):
             output_text = gr.Textbox(lines=15, label="Transcription Result")
             time_output = gr.Label(label="Processing Time")
+            download_btn = gr.Button("Download Text Result")
+            download_file = gr.File(label="Download File")
+            download_btn.click(save_transcription, inputs=output_text, outputs=download_file)
     submit_btn.click(fn=process_audio, inputs=[audio_input, model_dropdown], outputs=[output_text, time_output])
 
 if __name__ == "__main__":
