@@ -217,8 +217,12 @@ def transcribe_nemo_chunk(model, chunk_path):
             raise ValueError("Model does not support transcribe method.")
             
     if isinstance(predicted_text, list):
-        return predicted_text[0]
-    return predicted_text
+        predicted_text = predicted_text[0]
+    
+    # Hypothesisオブジェクトなどが返ってくる場合への対応
+    if hasattr(predicted_text, 'text'):
+        return predicted_text.text
+    return str(predicted_text)
 
 def transcribe_nemo(model, audio_path):
     print("Running NeMo with dynamic chunking...")
